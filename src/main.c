@@ -15,10 +15,10 @@ int main(void) {
 				1.1f, 1.1f};
     
 	// Adjacency matrix including self-loops
-	int adjacency[N * N] = {
-	    1, 1, 0,
-	    1, 1, 1,
-	    0, 1, 1
+	float adjacency[N * N] = {
+	    1.0f, 1.0f, 0.0f,
+	    1.0f, 1.0f, 1.0f,
+	    0.0f, 1.0f, 1.0f
 	};
 
     	// Okay so i have 3 nodes with features being represented by two floating point values.
@@ -71,6 +71,7 @@ int main(void) {
 	struct ggml_tensor *result = ggml_mul_mat(ctx, feature_mat, weight_mat);
 	//Mask out non neighbors
 	ggml_mul_inplace(ctx, result, adj_mat);
+
 
     	return 0;
 }
