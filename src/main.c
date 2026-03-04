@@ -1,3 +1,4 @@
+#include "ggml-cpu.h"
 #include "ggml.h"
 #include <string.h>
 #include <stdlib.h>
@@ -68,10 +69,28 @@ int main(void) {
 	struct ggml_cgraph *gf = ggml_new_graph(ctx);
 
 	// Apply weight mat onto it
-	struct ggml_tensor *result = ggml_mul_mat(ctx, feature_mat, weight_mat);
+	struct ggml_tensor *xw = ggml_mul_mat(ctx, feature_mat, weight_mat);
 	//Mask out non neighbors
-	ggml_mul_inplace(ctx, result, adj_mat);
+        struct ggml_tensor *axw = ggml_mul_mat(ctx, adj_mat, xw);
 
+	// Apply activation function 
+	struct ggml_tensor *out = ggml_relu(ctx, axw);
+
+	// build & run graph
+	ggml_build_forward_expand(gf, out);
+	ggml_graph_compute_with_ctx(ctx, gf, 1);
+
+	// print output
+	float *out_data = (float *) out->data;
+
+	printf("Node embeddings:\n");
+	for (int i = 0; i < N; i++) {
+	    printf("Node %d: ", i);
+	    for (int j = 0; j < EMBEDDINGS_DEPTH; j++) {
+		printf("%7.4f ", out_data[i * EMBEDDINGS_DEPTH + j]);
+	    }
+	    printf("\n");
+	}
 
     	return 0;
 }
