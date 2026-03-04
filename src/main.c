@@ -59,26 +59,30 @@ int main(void) {
 	
 	struct ggml_cgraph *gf = ggml_new_graph(ctx);
 
-	// Apply weight mat onto it
-	struct ggml_tensor *xw = ggml_mul_mat(ctx, weight_mat, feature_mat);
-	//Mask out non neighbors
-        struct ggml_tensor *axw = ggml_mul_mat(ctx, xw,adj_mat);
+	// AX = A · X
+	struct ggml_tensor *ax =
+	    ggml_mul_mat(ctx, feature_mat, adj_mat);
 
-	// Apply activation function 
-	struct ggml_tensor *out = ggml_relu(ctx, axw);
+	// AXW = (A · X) · W
+	struct ggml_tensor *axw =
+	    ggml_mul_mat(ctx, weight_mat, ax);
+
+	// activation
+	struct ggml_tensor *out =
+	    ggml_relu(ctx, axw);
 
 	// build & run graph
 	ggml_build_forward_expand(gf, out);
 	ggml_graph_compute_with_ctx(ctx, gf, 1);
 
-	// print output
+	// print output (ggml column-major layout)
 	float *out_data = (float *) out->data;
 
 	printf("Node embeddings:\n");
 	for (int i = 0; i < N; i++) {
 	    printf("Node %d: ", i);
 	    for (int j = 0; j < EMBEDDINGS_DEPTH; j++) {
-		printf("%7.4f ", out_data[i * EMBEDDINGS_DEPTH + j]);
+		printf("%7.4f ", out_data[j * N + i]);
 	    }
 	    printf("\n");
 	}
