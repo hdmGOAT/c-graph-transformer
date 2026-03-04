@@ -27,19 +27,10 @@ int main(void) {
 	// learnable weight matrix will be of FEATURE_NUM by Embedding length (lets say 16), BUT we should only
 	// do that operation towards neighbors, this is apparantly applied by multiplying against ajacency matrix
 	// then finally feed into an activation function, this output then becomes a node embedding    
-	
-	size_t ctx_size = 0;
+	// Use large context for easyness	
+	size_t ctx_size = 8 * 1024 * 1024; 
 	// STEP 0: set up ggml	
 	
-	ctx_size += N * FN * ggml_type_size(GGML_TYPE_F32); // FEATURE MATRIX
-	ctx_size += FN * EMBEDDINGS_DEPTH * ggml_type_size(GGML_TYPE_F32); // LEARNABLE WEIGHT MATRIX
-	
-
-	ctx_size += N * FN * ggml_type_size(GGML_TYPE_F32); // output mat
-	ctx_size += N * N * ggml_type_size(GGML_TYPE_F32); // adjacency matrix
-	ctx_size += 3 * ggml_tensor_overhead();
-	ctx_size += 1024;
-
 	struct ggml_init_params params = {
 		ctx_size, NULL, false
 	};	
@@ -69,9 +60,9 @@ int main(void) {
 	struct ggml_cgraph *gf = ggml_new_graph(ctx);
 
 	// Apply weight mat onto it
-	struct ggml_tensor *xw = ggml_mul_mat(ctx, feature_mat, weight_mat);
+	struct ggml_tensor *xw = ggml_mul_mat(ctx, weight_mat, feature_mat);
 	//Mask out non neighbors
-        struct ggml_tensor *axw = ggml_mul_mat(ctx, adj_mat, xw);
+        struct ggml_tensor *axw = ggml_mul_mat(ctx, xw,adj_mat);
 
 	// Apply activation function 
 	struct ggml_tensor *out = ggml_relu(ctx, axw);
