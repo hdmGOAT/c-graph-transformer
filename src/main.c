@@ -30,7 +30,7 @@ int main(void) {
 	struct ggml_context *ctx = ggml_init(params);
 
 	
-	struct ggml_tensor *feature_mat = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, N, FN);	
+	struct ggml_tensor *feature_mat = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, FN, N);	
 	memcpy(feature_mat->data, features, ggml_nbytes(feature_mat));
 	struct ggml_tensor *weight_mat = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, FN, EMBEDDINGS_DEPTH);	
 
