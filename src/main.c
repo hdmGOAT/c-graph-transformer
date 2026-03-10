@@ -89,7 +89,23 @@ static struct ggml_tensor * gt_ln_forward(
     return out;
 }
 
+typedef struct {
+    int32_t num_nodes;
+    int32_t num_edges;
 
+    const int32_t * src;   // [E]
+    const int32_t * dst;   // [E]
+} edge_data;
+
+static struct ggml_tensor * gt_attention(
+    struct ggml_context        * ctx,
+    struct ggml_tensor         * x,        // [d_model, N]
+    const gt_attn_weights      * attn,     // W_q, W_k, W_v, W_o
+    int                          n_heads,
+    int                          d_head,
+    const edge_data            * edges
+) {
+}
 int main(void) {
 
 	return 0;
