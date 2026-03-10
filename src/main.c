@@ -1,4 +1,5 @@
 #include "ggml.h"
+#include "ggml-cpu.h"
 typedef struct {
 	struct ggml_tensor *W_q; // [d_model, d_model]
 	struct ggml_tensor *W_k;
@@ -14,6 +15,7 @@ typedef struct {
 typedef struct {
     struct ggml_tensor *gamma; // [d_model]
     struct ggml_tensor *beta;  // [d_model]
+    float eps;
 } gt_ln_weights;
 
 typedef struct {
@@ -48,6 +50,44 @@ static struct ggml_tensor * gt_ffn_forward(
     return y;
 }
 
+static struct ggml_tensor * gt_ln_forward(
+    struct ggml_context * ctx,
+    struct ggml_tensor * x,
+    const gt_ln_weights * w
+) {
+    struct ggml_tensor * mean =
+        ggml_mean(ctx, x);
+
+    struct ggml_tensor * x_centered =
+        ggml_sub(ctx, x, mean);
+
+    struct ggml_tensor * sq =
+        ggml_sqr(ctx, x_centered);
+
+    struct ggml_tensor * var =
+        ggml_mean(ctx, sq);
+
+    struct ggml_tensor * eps =
+        ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 1);
+    ggml_set_f32_1d(eps, 0, w->eps);
+
+    struct ggml_tensor * var_eps =
+        ggml_add(ctx, var, eps);
+
+    struct ggml_tensor * std =
+        ggml_sqrt(ctx, var_eps);
+
+    struct ggml_tensor * norm =
+        ggml_div(ctx, x_centered, std);
+
+    struct ggml_tensor * scaled =
+        ggml_mul(ctx, norm, w->gamma);
+
+    struct ggml_tensor * out =
+        ggml_add(ctx, scaled, w->beta);
+
+    return out;
+}
 
 
 int main(void) {
