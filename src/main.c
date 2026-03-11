@@ -1,170 +1,112 @@
-#include "ggml.h"
+#include "graph_transformer/block.h"
+
 #include "ggml-cpu.h"
-#include <math.h>
-typedef struct {
-	struct ggml_tensor *W_q; // [d_model, d_model]
-	struct ggml_tensor *W_k;
-	struct ggml_tensor *W_v;
-	struct ggml_tensor *W_o;
-} gt_attn_weights ;
+#include "ggml.h"
 
-typedef struct {
-    struct ggml_tensor *W1;  // [d_ff, d_model]
-    struct ggml_tensor *W2;  // [d_model, d_ff]
-} gt_ffn_weights;
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
-typedef struct {
-    struct ggml_tensor *gamma; // [d_model]
-    struct ggml_tensor *beta;  // [d_model]
-    float eps;
-} gt_ln_weights;
+enum {
+    GT_NODES = 3,
+    GT_D_MODEL = 8,
+    GT_D_FF = 16,
+    GT_N_HEADS = 2,
+    GT_D_HEAD = GT_D_MODEL / GT_N_HEADS
+};
 
-typedef struct {
-    gt_attn_weights attn;
-    gt_ffn_weights  ffn;
-    gt_ln_weights   ln1;
-    gt_ln_weights   ln2;
-} gt_block_weights;
-
-typedef struct {
-    int n_layers;
-    int n_heads;
-    int d_model;
-    int d_head;   // d_model / n_heads
-
-    gt_block_weights *blocks;
-} gt_model;
-
-typedef struct {
-    int32_t num_nodes;
-    int32_t num_edges;
-
-    const int32_t * src;   // [E]
-    const int32_t * dst;   // [E]
-} edge_data;
-
-static struct ggml_tensor * gt_ffn_forward(
-    struct ggml_context * ctx,
-    struct ggml_tensor  * x,   // [d_model, N]
-    const gt_ffn_weights * w   // W1, W2
-) {
-    struct ggml_tensor * h =
-        ggml_mul_mat(ctx, w->W1, x);
-
-    h = ggml_gelu(ctx, h);
-
-    struct ggml_tensor * y =
-        ggml_mul_mat(ctx, w->W2, h);
-
-    return y;
+static void fill_tensor_linear(struct ggml_tensor *tensor, float base, float step) {
+    float *data = (float *)tensor->data;
+    const int64_t total = ggml_nelements(tensor);
+    for (int64_t idx = 0; idx < total; ++idx) {
+        data[idx] = base + step * (float)idx;
+    }
 }
 
-static struct ggml_tensor * gt_ln_forward(
-    struct ggml_context * ctx,
-    struct ggml_tensor * x,
-    const gt_ln_weights * w
-) {
-    struct ggml_tensor * norm =
-        ggml_norm(ctx, x, w->eps);
-
-    struct ggml_tensor * gamma =
-        ggml_repeat(ctx, w->gamma, norm);
-    struct ggml_tensor * beta =
-        ggml_repeat(ctx, w->beta, norm);
-
-    struct ggml_tensor * scaled =
-        ggml_mul(ctx, norm, gamma);
-
-    struct ggml_tensor * out =
-        ggml_add(ctx, scaled, beta);
-
-    return out;
+static void fill_tensor_constant(struct ggml_tensor *tensor, float value) {
+    float *data = (float *)tensor->data;
+    const int64_t total = ggml_nelements(tensor);
+    for (int64_t idx = 0; idx < total; ++idx) {
+        data[idx] = value;
+    }
 }
 
-static struct ggml_tensor * gt_build_attention_mask(
-    struct ggml_context * ctx,
-    int64_t n_nodes,
-    const edge_data * edges
-) {
-    struct ggml_tensor * mask =
-        ggml_new_tensor_2d(ctx, GGML_TYPE_F32, n_nodes, n_nodes);
+static void print_tensor_2d(const struct ggml_tensor *tensor, const char *name, int max_rows) {
+    const float *data = (const float *)tensor->data;
+    const int cols = (int)tensor->ne[0];
+    const int rows = (int)tensor->ne[1];
+    const int shown_rows = rows < max_rows ? rows : max_rows;
 
-    float * data = (float *) mask->data;
-    const int64_t total = n_nodes * n_nodes;
-
-    for (int64_t index = 0; index < total; ++index) {
-        data[index] = -1e9f;
-    }
-
-    for (int64_t node = 0; node < n_nodes; ++node) {
-        data[node * n_nodes + node] = 0.0f;
-    }
-
-    if (edges != NULL && edges->src != NULL && edges->dst != NULL) {
-        for (int32_t edge = 0; edge < edges->num_edges; ++edge) {
-            const int32_t src = edges->src[edge];
-            const int32_t dst = edges->dst[edge];
-
-            if (src >= 0 && src < n_nodes && dst >= 0 && dst < n_nodes) {
-                data[dst * n_nodes + src] = 0.0f;
-            }
+    printf("%s shape=[%d, %d]\n", name, cols, rows);
+    for (int row = 0; row < shown_rows; ++row) {
+        printf("row %d: ", row);
+        for (int col = 0; col < cols; ++col) {
+            printf("% .4f ", data[row * cols + col]);
         }
+        printf("\n");
     }
-
-    return mask;
-}
-
-static struct ggml_tensor * gt_graph_attention_kernel(
-    struct ggml_context *ctx,
-    struct ggml_tensor *Qh, // [d_head, n_heads, N]
-    struct ggml_tensor *Kh, // [d_head, n_heads, N]
-    struct ggml_tensor *Vh, // [d_head, n_heads, N]
-    const edge_data *edges  
-){
-    const float d_head = (float) Qh->ne[0];
-    struct ggml_tensor * scores = ggml_mul_mat(ctx, Kh, Qh);
-    struct ggml_tensor * mask_2d =
-        gt_build_attention_mask(ctx, Qh->ne[2], edges);
-    struct ggml_tensor * probs =
-        ggml_soft_max_ext(ctx, scores, mask_2d, 1.0f / sqrtf(d_head), 0.0f);
-
-    struct ggml_tensor * V_weighted = ggml_mul_mat(ctx, Vh, probs);
-
-    return V_weighted;
-}
-
-static struct ggml_tensor * gt_attention(
-    struct ggml_context        * ctx,
-    struct ggml_tensor         * x,        // [d_model, N]
-    const gt_attn_weights      * attn,     // W_q, W_k, W_v, W_o
-    int                          n_heads,
-    int                          d_head,
-    const edge_data            * edges
-) {
-	struct ggml_tensor *Q = ggml_mul_mat(ctx, attn->W_q, x);
-	struct ggml_tensor *K = ggml_mul_mat(ctx, attn->W_k, x);
-	struct ggml_tensor *V = ggml_mul_mat(ctx, attn->W_v, x);
-
-	struct ggml_tensor * Qh =
-	    ggml_reshape_3d(ctx, Q, d_head, n_heads, x->ne[1]);
-	struct ggml_tensor * Kh =
-	    ggml_reshape_3d(ctx, K, d_head, n_heads, x->ne[1]);
-	struct ggml_tensor * Vh =
-	    ggml_reshape_3d(ctx, V, d_head, n_heads, x->ne[1]);
-
-    struct ggml_tensor * context =
-        gt_graph_attention_kernel(ctx, Qh, Kh, Vh, edges);
-
-    struct ggml_tensor * context_2d =
-        ggml_reshape_2d(ctx, context, d_head * n_heads, x->ne[1]);
-
-    struct ggml_tensor * out =
-        ggml_mul_mat(ctx, attn->W_o, context_2d);
-
-    return out;
 }
 
 int main(void) {
+    const int32_t src_edges[] = {0, 1, 2, 2};
+    const int32_t dst_edges[] = {1, 2, 0, 1};
+    const gt_edge_data edges = {
+        .num_nodes = GT_NODES,
+        .num_edges = (int32_t)(sizeof(src_edges) / sizeof(src_edges[0])),
+        .src = src_edges,
+        .dst = dst_edges,
+    };
 
-	return 0;
+    const size_t ctx_size = 64 * 1024 * 1024;
+    struct ggml_init_params params = {
+        .mem_size = ctx_size,
+        .mem_buffer = NULL,
+        .no_alloc = false,
+    };
+
+    struct ggml_context *ctx = ggml_init(params);
+    if (ctx == NULL) {
+        fprintf(stderr, "failed to create ggml context\n");
+        return 1;
+    }
+
+    struct ggml_tensor *x = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_MODEL, GT_NODES);
+    fill_tensor_linear(x, -0.25f, 0.03f);
+
+    gt_block_weights weights;
+    weights.attn.W_q = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_MODEL, GT_D_MODEL);
+    weights.attn.W_k = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_MODEL, GT_D_MODEL);
+    weights.attn.W_v = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_MODEL, GT_D_MODEL);
+    weights.attn.W_o = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_MODEL, GT_D_MODEL);
+    weights.ffn.W1 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_MODEL, GT_D_FF);
+    weights.ffn.W2 = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, GT_D_FF, GT_D_MODEL);
+    weights.ln1.gamma = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, GT_D_MODEL);
+    weights.ln1.beta = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, GT_D_MODEL);
+    weights.ln2.gamma = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, GT_D_MODEL);
+    weights.ln2.beta = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, GT_D_MODEL);
+    weights.ln1.eps = 1e-5f;
+    weights.ln2.eps = 1e-5f;
+
+    fill_tensor_linear(weights.attn.W_q, -0.05f, 0.002f);
+    fill_tensor_linear(weights.attn.W_k, 0.03f, -0.001f);
+    fill_tensor_linear(weights.attn.W_v, 0.01f, 0.0015f);
+    fill_tensor_linear(weights.attn.W_o, -0.02f, 0.0008f);
+    fill_tensor_linear(weights.ffn.W1, 0.00f, 0.001f);
+    fill_tensor_linear(weights.ffn.W2, 0.00f, -0.0007f);
+    fill_tensor_constant(weights.ln1.gamma, 1.0f);
+    fill_tensor_constant(weights.ln2.gamma, 1.0f);
+    fill_tensor_constant(weights.ln1.beta, 0.0f);
+    fill_tensor_constant(weights.ln2.beta, 0.0f);
+
+    struct ggml_tensor *out = gt_block_forward(ctx, x, &weights, GT_N_HEADS, GT_D_HEAD, &edges);
+
+    struct ggml_cgraph *gf = ggml_new_graph(ctx);
+    ggml_build_forward_expand(gf, out);
+    ggml_graph_compute_with_ctx(ctx, gf, 1);
+
+    print_tensor_2d(out, "block_out", GT_NODES);
+
+    ggml_free(ctx);
+    return 0;
 }
