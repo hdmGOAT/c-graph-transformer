@@ -17,3 +17,14 @@ cmake -S . -B build
 cmake --build build
 ./build/c_graph_transformer
 ```
+
+## Dataset setup (MUTAG / CiteSeer)
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python scripts/download_mutag.py
+python scripts/download_citeseer.py
+# raw files will be in data/raw/citeseer/citeseer/
+```
