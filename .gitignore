@@ -6,3 +6,8 @@ bin/
 *.so
 .venv/
 data/
+
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+*$py.class
