@@ -36,4 +36,9 @@ typedef struct {
     const int32_t *dst;
 } gt_edge_data;
 
+typedef struct {
+    struct ggml_tensor *W;  // Weight matrix [D_model, D_out]
+    struct ggml_tensor *b;  // Bias vector [D_out]
+} gt_task_head_weights;
+
 #endif
