@@ -1,5 +1,6 @@
 #include "graph_transformer/block.h"
 #include "graph_transformer/head.h"
+#include "graph_transformer/loss.h"
 
 #include "ggml-cpu.h"
 #include "ggml.h"
@@ -123,6 +124,28 @@ static bool load_mutag_first_label(const char *path, int *label_out) {
     return true;
 }
 
+static int citeseer_label_to_index(const char *label) {
+    if (strcmp(label, "Agents") == 0) {
+        return 0;
+    }
+    if (strcmp(label, "AI") == 0) {
+        return 1;
+    }
+    if (strcmp(label, "DB") == 0) {
+        return 2;
+    }
+    if (strcmp(label, "IR") == 0) {
+        return 3;
+    }
+    if (strcmp(label, "ML") == 0) {
+        return 4;
+    }
+    if (strcmp(label, "HCI") == 0) {
+        return 5;
+    }
+    return -1;
+}
+
 int main(void) {
     const int32_t src_edges[] = {0, 1, 2, 2};
     const int32_t dst_edges[] = {1, 2, 0, 1};
@@ -212,12 +235,23 @@ int main(void) {
 
     if (citeseer_ok) {
         printf("CiteSeer first paper label: %s\n", citeseer_label);
+        const int citeseer_target = citeseer_label_to_index(citeseer_label);
+        if (citeseer_target >= 0) {
+            const float node_loss =
+                gt_cross_entropy_loss_row(node_logits, 0, citeseer_target);
+            printf("CiteSeer node CE loss (sample 0): %.6f\n", node_loss);
+        } else {
+            printf("CiteSeer node CE loss: unavailable (unknown label)\n");
+        }
     } else {
         printf("CiteSeer first paper label: unavailable (dataset missing?)\n");
     }
 
     if (mutag_ok) {
         printf("MUTAG first graph label: %d\n", mutag_label);
+        const float graph_loss =
+            gt_cross_entropy_loss_row(graph_logits, 0, mutag_label);
+        printf("MUTAG graph CE loss (sample 0): %.6f\n", graph_loss);
     } else {
         printf("MUTAG first graph label: unavailable (dataset missing?)\n");
     }

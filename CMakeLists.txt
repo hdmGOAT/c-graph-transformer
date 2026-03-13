@@ -11,6 +11,7 @@ add_executable(c_graph_transformer
 	src/main.c
 	src/transformer/attention.c
 	src/transformer/head.c
+	src/transformer/loss.c
 	src/transformer/ffn.c
 	src/transformer/layer_norm.c
 	src/transformer/block.c

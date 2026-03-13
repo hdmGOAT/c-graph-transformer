@@ -19,6 +19,12 @@
 },
 {
   "directory": "/home/hd/projects/c-graph-transformer/build",
+  "command": "/usr/sbin/cc -DGGML_BACKEND_SHARED -DGGML_SHARED -DGGML_USE_CPU -I/home/hd/projects/c-graph-transformer/third_party/ggml/include -I/home/hd/projects/c-graph-transformer/include -I/home/hd/projects/c-graph-transformer/third_party/ggml/src/../include -g -std=gnu11 -o CMakeFiles/c_graph_transformer.dir/src/transformer/loss.c.o -c /home/hd/projects/c-graph-transformer/src/transformer/loss.c",
+  "file": "/home/hd/projects/c-graph-transformer/src/transformer/loss.c",
+  "output": "CMakeFiles/c_graph_transformer.dir/src/transformer/loss.c.o"
+},
+{
+  "directory": "/home/hd/projects/c-graph-transformer/build",
   "command": "/usr/sbin/cc -DGGML_BACKEND_SHARED -DGGML_SHARED -DGGML_USE_CPU -I/home/hd/projects/c-graph-transformer/third_party/ggml/include -I/home/hd/projects/c-graph-transformer/include -I/home/hd/projects/c-graph-transformer/third_party/ggml/src/../include -g -std=gnu11 -o CMakeFiles/c_graph_transformer.dir/src/transformer/ffn.c.o -c /home/hd/projects/c-graph-transformer/src/transformer/ffn.c",
   "file": "/home/hd/projects/c-graph-transformer/src/transformer/ffn.c",
   "output": "CMakeFiles/c_graph_transformer.dir/src/transformer/ffn.c.o"
